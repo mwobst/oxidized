@@ -1,3 +1,6 @@
+require 'git'
+RubyGit = Git # Use alias to avoid class name clashing.
+
 module Oxidized
   module Output
     class Git < Output
@@ -82,25 +85,28 @@ module Oxidized
       # give a hash of all oid revision for the given node, and the date of the commit
       def version(node, group)
         repo, path = yield_repo_and_path(node, group)
+        repo = RubyGit.bare(repo)
 
-        repo = Rugged::Repository.new repo
-        walker = Rugged::Walker.new(repo)
-        walker.sorting(Rugged::SORT_DATE)
-        walker.push(repo.head.target.oid)
+        # Define custom repo log object to bypass the 30 commit limit.
+        repo_log = RubyGit::Log.new(repo, false)
+
         i = -1
         tab = []
-        walker.each do |commit|
+        commits = repo_log.grep("#{path}$")
+
+        commits.each do |commit|
           # Diabled rubocop because the suggested .empty? does not work here.
           next if commit.diff(paths: [path]).size.zero? # rubocop:disable Style/ZeroLengthPredicate
 
           hash = {}
-          hash[:date] = commit.time.to_s
-          hash[:oid] = commit.oid
-          hash[:author] = commit.author
+          hash[:date] = commit.date.to_s
+          hash[:oid] = commit.sha
+          hash[:author] = {}
+          hash[:author][:name] = commit.author.name
+          hash[:author][:email] = commit.author.email
           hash[:message] = commit.message
           tab[i += 1] = hash
         end
-        walker.reset
         tab
       rescue StandardError
         'node not found'
